@@ -5,8 +5,12 @@ import argparse
 from pathlib import Path
 
 
-def create_efficient_translatable_map(json_data, translator, target_lang="FR", primary_lang=None, secondary_lang=None, memory_file=None):
-    """
+def create_efficient_translatable_map(
+       json_data, translator, target_lang="FR", 
+       primary_lang=None, secondary_lang=None,  # Add these
+       memory_file=None
+   ):
+   """
     Efficiently create a translatable map from JSON data containing blocks of text.
     Uses batching and translation memory for optimization.
     
@@ -72,61 +76,53 @@ def create_efficient_translatable_map(json_data, translator, target_lang="FR", p
     if texts_to_translate:
         print(f"Translating {len(texts_to_translate)} new text segments...")
         
-        batch_size = 50
-        for i in range(0, len(texts_to_translate), batch_size):
-            batch = texts_to_translate[i:i+batch_size]
-            batch_results = [None] * len(batch)  # Initialize with None
-            
+    batch_size = 50  # Reduced for detection overhead
+    for i in range(0, len(texts_to_translate), batch_size):
+        batch = texts_to_translate[i:i+batch_size]
+        translated_batch = []
+        
+        for text in batch:
+            # Phase 1: Quick detection (first 100 chars)
             try:
-                # Try with primary language first if specified
-                if primary_lang:
-                    try:
-                        results = translator.translate_text(
-                            batch,
-                            target_lang=target_lang,
-                            source_lang=primary_lang
-                        )
-                        batch_results = [r.text for r in results]
-                    except Exception:
-                        pass  # Fall through to secondary attempt
+                sample = text[:100]  # Detection sample
+                detection = translator.translate_text(
+                    sample,
+                    target_lang=target_lang,
+                    split_sentences="none",
+                    preserve_formatting=True
+                )
                 
-                # Try with secondary language for remaining untranslated texts
-                if secondary_lang:
-                    try:
-                        # Only translate texts that failed primary translation
-                        to_translate = [
-                            text for j, text in enumerate(batch) 
-                            if batch_results[j] is None
-                        ]
-                        if to_translate:
-                            secondary_results = translator.translate_text(
-                                to_translate,
-                                target_lang=target_lang,
-                                source_lang=secondary_lang
-                            )
-                            # Merge results back into batch_results
-                            result_index = 0
-                            for j in range(len(batch)):
-                                if batch_results[j] is None:
-                                    batch_results[j] = secondary_results[result_index].text
-                                    result_index += 1
-                    except Exception:
-                        pass  # Keep original text where translation failed
+                # Phase 2: Validate language
+                detected_lang = detection.detected_source_lang.lower()
+                allowed_langs = {
+                    lang.lower() for lang in [primary_lang, secondary_lang] if lang
+                }
                 
+                if detected_lang in allowed_langs:
+                    # Phase 3: Full translation
+                    result = translator.translate_text(
+                        text,
+                        target_lang=target_lang
+                    )
+                    translated_batch.append(result.text)
+                else:
+                    translated_batch.append(text)  # Keep original
+                    
             except Exception as e:
-                print(f"Batch error - keeping originals: {e}")
+                print(f"Language detection failed for text, keeping original: {e}")
+                translated_batch.append(text)
+        
+        # Store results for this batch
+        for j in range(len(batch)):
+            index = i + j
+            token = token_indices[index]
+            original_text = original_texts[token]
+            final_text = translated_batch[j]
             
-            # Store final results (translated or original)
-            for j in range(len(batch)):
-                index = i + j
-                token = token_indices[index]
-                original_text = original_texts[token]
-                final_text = batch_results[j] if batch_results[j] is not None else original_text
-                translatable_map[token] = final_text
-                translation_memory[original_text] = final_text
-            
-            print(f"Processed batch {i//batch_size + 1}/{(len(texts_to_translate) + batch_size - 1)//batch_size}")
-    
+            translatable_map[token] = final_text
+            translation_memory[original_text] = final_text
+        
+        print(f"Processed batch {i//batch_size + 1}/{(len(texts_to_translate) + batch_size - 1)//batch_size}")
     # Save updated memory
     if memory_file and translation_memory:
         memory_dir = os.path.dirname(memory_file)
