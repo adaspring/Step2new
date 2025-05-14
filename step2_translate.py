@@ -79,7 +79,6 @@ def create_efficient_translatable_map(
                     detection = translator.translate_text(
                         sample,
                         target_lang=target_lang,
-                        split_sentences="none",
                         preserve_formatting=True
                     )
                     
