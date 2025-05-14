@@ -5,7 +5,7 @@ import argparse
 from pathlib import Path
 
 
-def create_efficient_translatable_map(json_data, translator, target_lang="FR", memory_file=None):
+def create_efficient_translatable_map(json_data, translator, target_lang="FR", primary_lang=None, secondary_lang=None, memory_file=None):
     """
     Efficiently create a translatable map from JSON data containing blocks of text.
     Uses batching and translation memory for optimization.
@@ -14,10 +14,9 @@ def create_efficient_translatable_map(json_data, translator, target_lang="FR", m
         json_data: Parsed JSON data with blocks of text
         translator: DeepL translator instance
         target_lang: Target language code (default "FR")
+        primary_lang: Primary source language code (from step1)
+        secondary_lang: Secondary source language code (from step1)
         memory_file: Path to translation memory file
-        
-    Returns:
-        Dictionary mapping tokens to translated text
     """
     # Load translation memory if available
     translation_memory = {}
@@ -73,30 +72,62 @@ def create_efficient_translatable_map(json_data, translator, target_lang="FR", m
     if texts_to_translate:
         print(f"Translating {len(texts_to_translate)} new text segments...")
         
-        # Use a reasonable batch size to avoid API limits
-        batch_size = 50  # Adjust based on DeepL API limits
+        batch_size = 50
         for i in range(0, len(texts_to_translate), batch_size):
             batch = texts_to_translate[i:i+batch_size]
+            batch_results = [None] * len(batch)  # Initialize with None
             
             try:
-                results = translator.translate_text(batch, target_lang=target_lang)
+                # Try with primary language first if specified
+                if primary_lang:
+                    try:
+                        results = translator.translate_text(
+                            batch,
+                            target_lang=target_lang,
+                            source_lang=primary_lang
+                        )
+                        batch_results = [r.text for r in results]
+                    except Exception:
+                        pass  # Fall through to secondary attempt
                 
-                for j, result in enumerate(results):
-                    index = i + j
-                    token = token_indices[index]
-                    original_text = original_texts[token]
-                    
-                    # Save to map and memory
-                    translatable_map[token] = result.text
-                    translation_memory[original_text] = result.text
-                    
-                print(f"Translated batch {i//batch_size + 1}/{(len(texts_to_translate) + batch_size - 1)//batch_size}")
+                # Try with secondary language for remaining untranslated texts
+                if secondary_lang:
+                    try:
+                        # Only translate texts that failed primary translation
+                        to_translate = [
+                            text for j, text in enumerate(batch) 
+                            if batch_results[j] is None
+                        ]
+                        if to_translate:
+                            secondary_results = translator.translate_text(
+                                to_translate,
+                                target_lang=target_lang,
+                                source_lang=secondary_lang
+                            )
+                            # Merge results back into batch_results
+                            result_index = 0
+                            for j in range(len(batch)):
+                                if batch_results[j] is None:
+                                    batch_results[j] = secondary_results[result_index].text
+                                    result_index += 1
+                    except Exception:
+                        pass  # Keep original text where translation failed
                 
             except Exception as e:
-                print(f"Error translating batch starting at index {i}: {e}")
-                # Continue with the next batch
+                print(f"Batch error - keeping originals: {e}")
+            
+            # Store final results (translated or original)
+            for j in range(len(batch)):
+                index = i + j
+                token = token_indices[index]
+                original_text = original_texts[token]
+                final_text = batch_results[j] if batch_results[j] is not None else original_text
+                translatable_map[token] = final_text
+                translation_memory[original_text] = final_text
+            
+            print(f"Processed batch {i//batch_size + 1}/{(len(texts_to_translate) + batch_size - 1)//batch_size}")
     
-    # Save updated memory if we have a file path
+    # Save updated memory
     if memory_file and translation_memory:
         memory_dir = os.path.dirname(memory_file)
         if memory_dir and not os.path.exists(memory_dir):
@@ -108,68 +139,50 @@ def create_efficient_translatable_map(json_data, translator, target_lang="FR", m
     
     return translatable_map
 
-def translate_json_file(input_file, output_file, target_lang="FR", memory_dir="translation_memory"):
+def translate_json_file(input_file, output_file, target_lang="FR", primary_lang=None, secondary_lang=None, memory_dir="translation_memory"):
     """
     Main function to translate a JSON file while maintaining the original structure.
-    
-    Args:
-        input_file: Path to input JSON file
-        output_file: Path to output JSON file for translations
-        target_lang: Target language code (default "FR")
-        memory_dir: Directory to store translation memory files
     """
-    # Ensure the auth key is available
     auth_key = os.getenv("DEEPL_AUTH_KEY")
     if not auth_key:
-        raise ValueError("DEEPL_AUTH_KEY environment variable not set. Please set it before running.")
+        raise ValueError("DEEPL_AUTH_KEY environment variable not set")
     
-    # Create translator instance
     translator = deepl.Translator(auth_key)
-    
-    # Memory file path
     memory_file = os.path.join(memory_dir, f"translation_memory_{target_lang.lower()}.json")
     
-    # Load input data
     try:
         with open(input_file, "r", encoding="utf-8") as f:
             json_data = json.load(f)
     except json.JSONDecodeError as e:
         raise ValueError(f"Error parsing input file {input_file}: {e}")
     
-    # Create translatable map
     translatable_map = create_efficient_translatable_map(
         json_data, 
         translator, 
-        target_lang=target_lang, 
+        target_lang=target_lang,
+        primary_lang=primary_lang,
+        secondary_lang=secondary_lang,
         memory_file=memory_file
     )
     
-    # Create a new structure with translations that matches the original structure
+    # Create translated structure
     translated_data = {}
-    
     for block_id, block_data in json_data.items():
-        # Create a new block with the same structure
         translated_block = block_data.copy()
         
-        # Replace the text if we have a translation
-        if "text" in block_data and block_id in translatable_map:
-            translated_block["text"] = translatable_map[block_id]
+        if "text" in block_data:
+            translated_block["text"] = translatable_map.get(block_id, block_data["text"])
         
-        # Replace segments if we have translations
         if "segments" in block_data:
             translated_segments = {}
             for segment_id, segment_text in block_data["segments"].items():
                 token = f"{block_id}_{segment_id}"
-                if token in translatable_map:
-                    translated_segments[segment_id] = translatable_map[token]
-                else:
-                    translated_segments[segment_id] = segment_text  # Keep original if no translation
-            
+                translated_segments[segment_id] = translatable_map.get(token, segment_text)
             translated_block["segments"] = translated_segments
         
         translated_data[block_id] = translated_block
     
-    # Save the output
+    # Save output
     output_dir = os.path.dirname(output_file)
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
@@ -178,73 +191,29 @@ def translate_json_file(input_file, output_file, target_lang="FR", memory_dir="t
         json.dump(translated_data, f, indent=2, ensure_ascii=False)
     
     print(f"✅ Translation completed: {output_file} with {len(translatable_map)} entries")
-    
     return translated_data
 
-
-def apply_translations(original_file, translations_file, output_file):
-    """
-    Apply translations to the original JSON structure.
-    
-    Args:
-        original_file: Path to original JSON file
-        translations_file: Path to translations JSON file
-        output_file: Path to output translated JSON file
-    """
-    # Load files
-    with open(original_file, "r", encoding="utf-8") as f:
-        original_data = json.load(f)
-    
-    with open(translations_file, "r", encoding="utf-8") as f:
-        translations = json.load(f)
-    
-    # Create a new structure with translations
-    translated_data = {}
-    
-    for block_id, block_data in original_data.items():
-        # Create a new block
-        translated_block = block_data.copy()
-        
-        # Replace the text if we have a translation
-        if "text" in block_data and block_id in translations:
-            translated_block["text"] = translations[block_id]
-        
-        # Replace segments if we have translations
-        if "segments" in block_data:
-            translated_segments = {}
-            for segment_id, segment_text in block_data["segments"].items():
-                token = f"{block_id}_{segment_id}"
-                if token in translations:
-                    translated_segments[segment_id] = translations[token]
-                else:
-                    translated_segments[segment_id] = segment_text  # Keep original if no translation
-            
-            translated_block["segments"] = translated_segments
-        
-        translated_data[block_id] = translated_block
-    
-    # Save the translated structure
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(translated_data, f, indent=2, ensure_ascii=False)
-    
-    print(f"✅ Applied translations: {output_file}")
-
-
 def main():
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description="Efficiently translate JSON content using DeepL API")
-    parser.add_argument("--input", "-i", default="translatable_flat.json", help="Input JSON file path")
-    parser.add_argument("--output", "-o", default="translations.json", help="Output JSON file path")
-    parser.add_argument("--lang", "-l", default="FR", help="Target language code (e.g., FR, ES, DE)")
-    parser.add_argument("--memory", "-m", default="translation_memory", help="Directory for translation memory files")
+    parser = argparse.ArgumentParser(description="Translate JSON content using DeepL")
+    parser.add_argument("--input", "-i", default="translatable_flat.json", help="Input JSON file")
+    parser.add_argument("--output", "-o", default="translations.json", help="Output JSON file")
+    parser.add_argument("--lang", "-l", required=True, help="Target language code (e.g., FR, ES)")
+    parser.add_argument("--primary-lang", help="Primary source language (from step1_extract.py --lang)")
+    parser.add_argument("--secondary-lang", help="Secondary language (from step1_extract.py --secondary-lang)")
+    parser.add_argument("--memory", "-m", default="translation_memory", help="Translation memory directory")
     parser.add_argument("--apply", "-a", action="store_true", help="Apply translations to original structure")
     args = parser.parse_args()
     
     try:
-        # First translate the content
-        translations = translate_json_file(args.input, args.output, args.lang, args.memory)
+        translations = translate_json_file(
+            args.input,
+            args.output,
+            target_lang=args.lang,
+            primary_lang=args.primary_lang,
+            secondary_lang=args.secondary_lang,
+            memory_dir=args.memory
+        )
         
-        # If --apply flag is set, apply translations to original structure
         if args.apply:
             apply_translations(args.input, args.output, f"translated_{args.input}")
             
@@ -254,8 +223,5 @@ def main():
     
     return 0
 
-
 if __name__ == "__main__":
-    # If running as script, execute main function
-    exit_code = main()
-    exit(exit_code)
+    exit(main())
