@@ -108,10 +108,9 @@ def create_efficient_translatable_map(json_data, translator, target_lang="FR", m
     
     return translatable_map
 
-
 def translate_json_file(input_file, output_file, target_lang="FR", memory_dir="translation_memory"):
     """
-    Main function to translate a JSON file.
+    Main function to translate a JSON file while maintaining the original structure.
     
     Args:
         input_file: Path to input JSON file
@@ -145,17 +144,42 @@ def translate_json_file(input_file, output_file, target_lang="FR", memory_dir="t
         memory_file=memory_file
     )
     
+    # Create a new structure with translations that matches the original structure
+    translated_data = {}
+    
+    for block_id, block_data in json_data.items():
+        # Create a new block with the same structure
+        translated_block = block_data.copy()
+        
+        # Replace the text if we have a translation
+        if "text" in block_data and block_id in translatable_map:
+            translated_block["text"] = translatable_map[block_id]
+        
+        # Replace segments if we have translations
+        if "segments" in block_data:
+            translated_segments = {}
+            for segment_id, segment_text in block_data["segments"].items():
+                token = f"{block_id}_{segment_id}"
+                if token in translatable_map:
+                    translated_segments[segment_id] = translatable_map[token]
+                else:
+                    translated_segments[segment_id] = segment_text  # Keep original if no translation
+            
+            translated_block["segments"] = translated_segments
+        
+        translated_data[block_id] = translated_block
+    
     # Save the output
     output_dir = os.path.dirname(output_file)
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
     with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(translatable_map, f, indent=2, ensure_ascii=False)
+        json.dump(translated_data, f, indent=2, ensure_ascii=False)
     
     print(f"✅ Translation completed: {output_file} with {len(translatable_map)} entries")
     
-    return translatable_map
+    return translated_data
 
 
 def apply_translations(original_file, translations_file, output_file):
