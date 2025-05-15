@@ -67,7 +67,7 @@ def create_efficient_translatable_map(
     if texts_to_translate:
         print(f"Processing {len(texts_to_translate)} segments with language validation...")
         
-        batch_size = 150  # Conservative batch size for detection overhead
+        batch_size = 50  # Conservative batch size for detection overhead
         for i in range(0, len(texts_to_translate), batch_size):
             batch = texts_to_translate[i:i+batch_size]
             translated_batch = []
@@ -75,7 +75,7 @@ def create_efficient_translatable_map(
             for text in batch:
                 try:
                     # Phase 1: Language detection (first 100 chars)
-                    sample = text[:100]
+                    sample = text[:20]
                     detection = translator.translate_text(
                         sample,
                         target_lang=target_lang,
