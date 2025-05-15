@@ -72,35 +72,33 @@ def create_efficient_translatable_map(
             batch = texts_to_translate[i:i+batch_size]
             translated_batch = []
             
-            for text in batch:
-                try:
-                    # Phase 1: Language detection (first 100 chars)
-                    sample = text[:20]
-                    detection = translator.translate_text(
-                        sample,
-                        target_lang=target_lang,
-                        preserve_formatting=True
-                    )
-                    
-                    # Phase 2: Language validation
-                    detected_lang = detection.detected_source_lang.lower()
-                    allowed_langs = {
-                        lang.lower() for lang in [primary_lang, secondary_lang] if lang
-                    }
-                    
-                    if allowed_langs and detected_lang in allowed_langs:
-                        # Phase 3: Full translation
-                        result = translator.translate_text(
-                            text,
-                            target_lang=target_lang
-                        )
-                        translated_batch.append(result.text)
-                    else:
-                        translated_batch.append(text)  # Keep original
-                        
-                except Exception as e:
-                    print(f"Translation skipped for text (error: {str(e)[:50]}...)")
-                    translated_batch.append(text)
+           try:
+    # Phase 1: Batch Language detection
+    detection_results = translator.translate_text(
+        [text[:20] for text in batch],
+        target_lang=target_lang,
+        preserve_formatting=True
+    )
+
+    # Phase 2: Language validation and conditional full translation
+    for i, detection in enumerate(detection_results):
+        detected_lang = detection.detected_source_lang.lower()
+        allowed_langs = {
+            lang.lower() for lang in [primary_lang, secondary_lang] if lang
+        }
+
+        text = batch[i]
+        if allowed_langs and detected_lang in allowed_langs:
+            result = translator.translate_text(
+                text,
+                target_lang=target_lang
+            )
+            translated_batch.append(result.text)
+        else:
+            translated_batch.append(text)
+except Exception as e:
+    print(f"Translation skipped for batch (error: {str(e)[:50]}...)")
+    translated_batch.extend(batch)
             
             # Store results
             for j in range(len(batch)):
