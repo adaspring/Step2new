@@ -198,7 +198,7 @@ def translate_json_file(
         for block_id, block_data in translated_data.items():
             if "segments" in block_data:
                 for seg_id, seg_text in block_data["segments"].items():
-                    segment_key = f"{block_id}_{seg_id}"
+                    segment_key = seg_id
                     segment_translations[segment_key] = seg_text
 
         with open(segment_file, "w", encoding="utf-8") as f:
