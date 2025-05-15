@@ -200,7 +200,82 @@ def translate_json_file(
 
     return translated_data
 
-# ... (apply_translations and main functions remain unchanged) ...
+def apply_translations(original_file, translations_file, output_file):
+    """Applies translations to original JSON structure"""
+    with open(original_file, "r", encoding="utf-8") as f:
+        original_data = json.load(f)
+    
+    with open(translations_file, "r", encoding="utf-8") as f:
+        translations = json.load(f)
+    
+    translated_data = {}
+    for block_id, block_data in original_data.items():
+        translated_block = block_data.copy()
+        
+        if "text" in block_data:
+            translated_block["text"] = translations.get(block_id, block_data["text"])
+        
+        if "segments" in block_data:
+            translated_block["segments"] = {
+                seg_id: translations.get(f"{block_id}_{seg_id}", seg_text)
+                for seg_id, seg_text in block_data["segments"].items()
+            }
+        
+        translated_data[block_id] = translated_block
+    
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(translated_data, f, indent=2, ensure_ascii=False)
+    
+    print(f"✅ Applied translations to {output_file}")
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="Translate JSON content with language validation"
+    )
+    parser.add_argument("--input", "-i", default="translatable_flat.json", 
+                       help="Input JSON file")
+    parser.add_argument("--output", "-o", default="translations.json",
+                       help="Output JSON file")
+    parser.add_argument("--lang", "-l", required=True,
+                       help="Target language code (e.g., FR, ES)")
+    parser.add_argument("--primary-lang", 
+                       help="Primary source language code (from step1)")
+    parser.add_argument("--secondary-lang",
+                       help="Secondary source language code (from step1)")
+    parser.add_argument("--memory", "-m", default="translation_memory",
+                       help="Translation memory directory")
+    parser.add_argument("--apply", "-a", action="store_true",
+                       help="Apply translations to original structure")
+    parser.add_argument("--segments", "-s", 
+                       help="Output file for segment-only translations")
+
+    args = parser.parse_args()
+
+    try:
+        translations = translate_json_file(
+            input_file=args.input,
+            output_file=args.output,
+            target_lang=args.lang,
+            primary_lang=args.primary_lang,
+            secondary_lang=args.secondary_lang,
+            memory_dir=args.memory,
+            segment_file=args.segments
+        )
+
+        if args.apply:
+            apply_translations(
+                args.input,
+                args.output,
+                f"translated_{args.input}"
+            )
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        return 1
+
+    return 0
+
+if __name__ == "__main__":
+    exit(main())
 if __name__ == "__main__":
     exit(main())
