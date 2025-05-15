@@ -140,6 +140,9 @@ def translate_json_file(
 
     # Initialize translator
     translator = deepl.Translator(auth_key)
+    
+    # Create memory directory if it doesn't exist
+    os.makedirs(memory_dir, exist_ok=True)
     memory_file = os.path.join(memory_dir, f"translation_memory_{target_lang.lower()}.json")
 
     # Load input data
@@ -178,14 +181,16 @@ def translate_json_file(
         
         translated_data[block_id] = translated_block
 
-    # Save output
-    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    # Save output - Fix for empty directory path
+    output_dir = os.path.dirname(output_file)
+    if output_dir:  # Only create directories if there's a directory path
+        os.makedirs(output_dir, exist_ok=True)
+    
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(translated_data, f, indent=2, ensure_ascii=False)
     
     print(f"✅ Translation completed: {output_file}")
     return translated_data
-
 
 def apply_translations(original_file, translations_file, output_file):
     """Applies translations to original JSON structure"""
