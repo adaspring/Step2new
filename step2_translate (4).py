@@ -130,7 +130,8 @@ def translate_json_file(
     target_lang="FR", 
     primary_lang=None, 
     secondary_lang=None, 
-    memory_dir="translation_memory"
+    memory_dir="translation_memory",
+    segment_file=None  # <-- Added
 ):
     """Main translation function with language validation"""
     # Auth check
@@ -190,6 +191,21 @@ def translate_json_file(
         json.dump(translated_data, f, indent=2, ensure_ascii=False)
     
     print(f"✅ Translation completed: {output_file}")
+    
+    # Write segment-only JSON if path is given
+    if segment_file:
+        segment_translations = {}
+        for block_id, block_data in translated_data.items():
+            if "segments" in block_data:
+                for seg_id, seg_text in block_data["segments"].items():
+                    segment_key = f"{block_id}_{seg_id}"
+                    segment_translations[segment_key] = seg_text
+
+        with open(segment_file, "w", encoding="utf-8") as f:
+            json.dump(segment_translations, f, indent=2, ensure_ascii=False)
+        print(f"✅ Segment-only translations exported: {segment_file}")
+    
+    
     return translated_data
 
 def apply_translations(original_file, translations_file, output_file):
@@ -239,7 +255,9 @@ def main():
                        help="Translation memory directory")
     parser.add_argument("--apply", "-a", action="store_true",
                        help="Apply translations to original structure")
-    
+    parser.add_argument("--segments", "-s", 
+                       help="Output file for segment-only translations")  # <-- Added
+
     args = parser.parse_args()
 
     try:
@@ -249,7 +267,8 @@ def main():
             target_lang=args.lang,
             primary_lang=args.primary_lang,
             secondary_lang=args.secondary_lang,
-            memory_dir=args.memory
+            memory_dir=args.memory,
+            segment_file=args.segments  # <-- Added
         )
 
         if args.apply:
