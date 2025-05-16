@@ -528,7 +528,7 @@ def extract_translatable_html(input_path, lang_code):
         }
 
     with open("translatable_flat.json", "w", encoding="utf-8") as f:
-         json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
+        json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
     
     with open("translatable_structured.json", "w", encoding="utf-8") as f:
         json.dump(structured_output, f, indent=2, ensure_ascii=False)
@@ -546,7 +546,7 @@ def extract_translatable_html(input_path, lang_code):
     )
 
     with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
-    json.dump(categorized_output, f, indent=2, ensure_ascii=False)
+        json.dump(categorized_output, f, indent=2, ensure_ascii=False)
 
     
     print("✅ Step 1 complete: saved translatable_flat.json, translatable_structured.json, and non_translatable.html.")
