@@ -83,16 +83,23 @@ def categorize_flat_sentences(flat_sentences, structured_data):
     # Create a lookup for block metadata
     block_metadata = {}
     for block_id, data in structured_data.items():
-        tag = f"<{data.get('type', 'unknown')}>"  # Convert type to HTML-like tag
+        # Get the actual HTML tag name from original structured data
+        tag_name = data.get('tag', 
+                      data.get('attr', 
+                        data.get('meta', 
+                          data.get('jsonld', 'unknown'))))
+        tag = f"<{tag_name}>"  # Convert to HTML-like tag
         block_metadata[block_id] = tag
 
     # Group blocks by text and tag
     text_groups = {}
     for block_id, text in flat_sentences.items():
         if block_id not in block_metadata:
-            continue  # Skip orphaned blocks
+            print(f"⚠️ Missing metadata for block {block_id}")
+            continue
         
-        word_count = len(text.strip().split())
+        # Proper word counting with multiple space handling
+        word_count = len(re.findall(r'\S+', text))
         tag = block_metadata[block_id]
         group_key = f"{text}||{tag}"
         
@@ -105,7 +112,9 @@ def categorize_flat_sentences(flat_sentences, structured_data):
             }
         text_groups[group_key]["blocks"].append(block_id)
 
-    # Organize into categories
+    # Organize into categories with debugging
+    print(f"Found {len(text_groups)} text groups")
+    
     for group in text_groups.values():
         category = (
             "1_word" if group["word_count"] == 1 else
@@ -122,6 +131,7 @@ def categorize_flat_sentences(flat_sentences, structured_data):
             entry = {group["blocks"][0]: group["text"], "tag": group["tag"]}
         
         categorized[category].append(entry)
+        print(f"Added to {category}: {entry}")
 
     return categorized
 
@@ -540,7 +550,7 @@ def extract_translatable_html(input_path, lang_code):
     k: v for k, v in flattened_output.items()
     if "_S" in k and "_W" not in k
     }
-    categorized_output = categorize_flat_sentences(flat_sentences_only, reformatted_flattened) 
+    categorized_output = categorize_flat_sentences(flat_sentences_only, structured_output)
 
     with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
          json.dump(categorized_output, f, indent=2, ensure_ascii=False)
