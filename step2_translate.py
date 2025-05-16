@@ -5,9 +5,7 @@ import argparse
 from pathlib import Path
 
 
-# Optimized version of create_efficient_translatable_map with deduplication and skip-if-cached
 def create_efficient_translatable_map(
-
     json_data, 
     translator, 
     target_lang="FR", 
@@ -67,7 +65,7 @@ def create_efficient_translatable_map(
     if texts_to_translate:
         print(f"Processing {len(texts_to_translate)} segments with language validation...")
         
-        batch_size = 330  # Conservative batch size for detection overhead
+        batch_size = 50  # Conservative batch size for detection overhead
         for batch_idx in range(0, len(texts_to_translate), batch_size):
             batch = texts_to_translate[batch_idx:batch_idx+batch_size]
             translated_batch = []
@@ -75,7 +73,7 @@ def create_efficient_translatable_map(
             try:
                 # Phase 1: Batch Language detection
                 detection_results = translator.translate_text(
-                    [text[:100] for text in batch],
+                    [text[:20] for text in batch],
                     target_lang=target_lang,
                     preserve_formatting=True
                 )
@@ -151,45 +149,6 @@ def translate_json_file(
     except Exception as e:
         raise ValueError(f"Failed to load {input_file}: {e}")
 
-
-    # Early cache check if skip-if-cached is enabled
-    if memory_file and os.path.exists(memory_file) and args.skip_if_cached:
-        with open(memory_file, "r", encoding="utf-8") as mf:
-            memory_check = json.load(mf)
-        all_in_memory = True
-        for block_id, block_data in json_data.items():
-            texts = []
-            if "text" in block_data:
-                texts.append(block_data["text"])
-            if "segments" in block_data:
-                texts.extend(block_data["segments"].values())
-            for text in texts:
-                if text not in memory_check:
-                    all_in_memory = False
-                    break
-            if not all_in_memory:
-                break
-        if all_in_memory:
-            print("All texts found in memory. Skipping translation.")
-            translatable_map = {text: memory_check[text] for text in memory_check}
-            # Build translated data from memory
-            translated_data = {}
-            for block_id, block_data in json_data.items():
-                translated_block = block_data.copy()
-                if "text" in block_data:
-                    translated_block["text"] = memory_check.get(block_data["text"], block_data["text"])
-                if "segments" in block_data:
-                    translated_block["segments"] = {
-                        seg_id: memory_check.get(seg_text, seg_text)
-                        for seg_id, seg_text in block_data["segments"].items()
-                    }
-                translated_data[block_id] = translated_block
-            if output_dir:
-                os.makedirs(output_dir, exist_ok=True)
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(translated_data, f, indent=2, ensure_ascii=False)
-            print(f"✅ Used memory-only translations: {output_file}")
-            return translated_data
     # Create translation map
     translatable_map = create_efficient_translatable_map(
         json_data=json_data,
@@ -287,7 +246,6 @@ def main():
                        help="Translation memory directory")
     parser.add_argument("--apply", "-a", action="store_true",
                        help="Apply translations to original structure")
-    parser.add_argument("--skip-if-cached", action="store_true", help="Skip translation if all texts are cached")
     parser.add_argument("--segments", "-s", 
                        help="Output file for segment-only translations")
 
@@ -317,5 +275,7 @@ def main():
 
     return 0
 
+if __name__ == "__main__":
+    exit(main())
 if __name__ == "__main__":
     exit(main())
