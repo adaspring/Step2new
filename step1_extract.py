@@ -72,67 +72,6 @@ EXCLUDED_META_PROPERTIES = {"og:url"}
 
 
 # Helper Functions -------------------------------------------------
-def categorize_flat_sentences(flat_sentences, structured_data):
-    categorized = {
-        "1_word": [],
-        "2_words": [],
-        "3_words": [],
-        "4+_words": []
-    }
-    
-    # Create a lookup for parent block metadata
-    block_metadata = {}
-    for block_id, data in structured_data.items():
-        # Get the actual HTML element/attribute type
-        tag_name = data.get('tag', 
-                      data.get('attr', 
-                        data.get('meta', 
-                          data.get('jsonld', 'unknown'))))
-        block_metadata[block_id] = f"<{tag_name}>"
-
-    # Process sentence-level blocks
-    text_groups = {}
-    for sentence_id, text in flat_sentences.items():
-        # Extract parent block ID (e.g., "BLOCK_1" from "BLOCK_1_S1")
-        parent_block_id = "_".join(sentence_id.split("_")[:2])
-        
-        if parent_block_id not in block_metadata:
-            print(f"⚠️ Missing parent block metadata for {sentence_id}")
-            continue
-
-        tag = block_metadata[parent_block_id]
-        word_count = len(re.findall(r'\S+', text))
-        group_key = f"{text}||{tag}"
-
-        if group_key not in text_groups:
-            text_groups[group_key] = {
-                "text": text,
-                "tag": tag,
-                "blocks": [],
-                "word_count": word_count
-            }
-        text_groups[group_key]["blocks"].append(sentence_id)
-
-    # Organize into categories
-    for group in text_groups.values():
-        category = (
-            "1_word" if group["word_count"] == 1 else
-            "2_words" if group["word_count"] == 2 else
-            "3_words" if group["word_count"] == 3 else
-            "4+_words"
-        )
-        
-        # Merge blocks with same text/tag
-        if group["word_count"] <= 3 and len(group["blocks"]) > 1:
-            merged_id = "=".join(group["blocks"])
-            entry = {merged_id: group["text"], "tag": group["tag"]}
-        else:
-            entry = {group["blocks"][0]: group["text"], "tag": group["tag"]}
-        
-        categorized[category].append(entry)
-
-    return categorized
-    
 def is_pure_symbol(text):
     """Skip text with no alphabetic characters."""
     return not re.search(r'[A-Za-z]', text)
@@ -534,7 +473,7 @@ def extract_translatable_html(input_path, lang_code):
         }
 
     with open("translatable_flat.json", "w", encoding="utf-8") as f:
-        json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
+         json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
     
     with open("translatable_structured.json", "w", encoding="utf-8") as f:
         json.dump(structured_output, f, indent=2, ensure_ascii=False)
@@ -542,15 +481,68 @@ def extract_translatable_html(input_path, lang_code):
     with open("non_translatable.html", "w", encoding="utf-8") as f:
         f.write(str(soup))
 
-    flat_sentences_only = {
+
+def count_words(text):
+    words = re.findall(r'\b\p{L}+\b', text)
+    return len(words)
+
+# Step 1: Collect BLOCK_X_S1 entries only
+flat_sentences_only = {
     k: v for k, v in flattened_output.items()
     if "_S" in k and "_W" not in k
-    }
-    categorized_output = categorize_flat_sentences(flat_sentences_only, structured_output)
+}
 
-    with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
-         json.dump(categorized_output, f, indent=2, ensure_ascii=False)
-    
+# Step 2: Map BLOCK id to its type from structured_output
+block_type_map = {}
+for block_id, block_info in structured_output.items():
+    block_type = block_info.get("tag") or block_info.get("attr") or block_info.get("meta") or block_info.get("jsonld") or "unknown"
+    for s_key in block_info.get("tokens", {}):
+        block_type_map[f"{block_id}_{s_key}"] = block_type
+
+# Step 3: Categorize by word count and group by identical text+type
+grouped = {
+    "1_word": [],
+    "2_words": [],
+    "3_words": [],
+    "4_or_more_words": []
+}
+seen = defaultdict(list)  # (text, type) -> list of keys
+
+for key, text in flat_sentences_only.items():
+    block_type = block_type_map.get(key, "unknown")
+    word_count = count_words(text)
+
+    if word_count == 1:
+        category = "1_word"
+    elif word_count == 2:
+        category = "2_words"
+    elif word_count == 3:
+        category = "3_words"
+    else:
+        category = "4_or_more_words"
+
+    seen[(text, block_type)].append(key)
+
+# Step 4: Build final grouped structure
+for (text, block_type), keys in seen.items():
+    entry = {}
+    merged_key = "=".join(keys)
+    entry[merged_key] = text
+    entry["type"] = f"<{block_type}>" if not block_type.startswith("og:") else block_type
+    word_count = count_words(text)
+
+    if word_count == 1:
+        grouped["1_word"].append(entry)
+    elif word_count == 2:
+        grouped["2_words"].append(entry)
+    elif word_count == 3:
+        grouped["3_words"].append(entry)
+    else:
+        grouped["4_or_more_words"].append(entry)
+
+# Step 5: Save updated file
+with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
+    json.dump(grouped, f, indent=2, ensure_ascii=False)
     print("✅ Step 1 complete: saved translatable_flat.json, translatable_structured.json, and non_translatable.html.")
 
 if __name__ == "__main__":
