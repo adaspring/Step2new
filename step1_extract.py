@@ -540,14 +540,10 @@ def extract_translatable_html(input_path, lang_code):
     k: v for k, v in flattened_output.items()
     if "_S" in k and "_W" not in k
     }
-    categorized_output = categorize_flat_sentences(
-    flat_sentences_only,
-    reformatted_flattened  # From existing reformatted_flattened variable
-    )
+    categorized_output = categorize_flat_sentences(flat_sentences_only, reformatted_flattened) 
 
     with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
-        json.dump(categorized_output, f, indent=2, ensure_ascii=False)
-
+         json.dump(categorized_output, f, indent=2, ensure_ascii=False)
     
     print("✅ Step 1 complete: saved translatable_flat.json, translatable_structured.json, and non_translatable.html.")
 
