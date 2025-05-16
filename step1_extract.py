@@ -7,7 +7,7 @@ import argparse
 import subprocess
 import regex as re
 from pypinyin import lazy_pinyin
-from bs4 import BeautifulSoup, Comment, NavigableString Tag
+from bs4 import BeautifulSoup, Comment, NavigableString
 
 # Language models for spaCy
 SPACY_MODELS = {
@@ -395,32 +395,28 @@ def detectis_exception_language(text):
 def has_do_not_translate_marker(element):
     current = element
     while current:
-        # Skip anything that's not a Tag (e.g. Doctype, NavigableString, etc.)
-        if not isinstance(current, Tag):
-            current = getattr(current, "parent", None)
-            continue
+        # Only operate on elements that have .get() (i.e., likely Tag-like)
+        if hasattr(current, "get"):
+            if current.get("translate", "").lower() == "no":
+                return True
 
-        # Check translate="no"
-        if current.get("translate", "").lower() == "no":
-            return True
+            classes = current.get("class", [])
+            if isinstance(classes, str):
+                classes = classes.split()
 
-        # Check class attributes
-        classes = current.get("class", [])
-        if isinstance(classes, str):
-            classes = classes.split()
+            no_translate_classes = [
+                "notranslate", "no-translate", "do-not-translate",
+                "translation-skip", "translation-ignore"
+            ]
+            if any(cls in classes for cls in no_translate_classes):
+                return True
 
-        no_translate_classes = [
-            "notranslate", "no-translate", "do-not-translate",
-            "translation-skip", "translation-ignore"
-        ]
-        if any(cls in classes for cls in no_translate_classes):
-            return True
+            if current.get("data-translate") == "no" or current.get("data-i18n-skip") == "true":
+                return True
 
-        # Check data attributes
-        if current.get("data-translate") == "no" or current.get("data-i18n-skip") == "true":
-            return True
+        # move up the tree
+        current = getattr(current, "parent", None)
 
-        current = current.parent
     return False
     
 def is_translatable_text(tag):
