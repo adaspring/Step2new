@@ -7,7 +7,7 @@ import argparse
 import subprocess
 import regex as re
 from pypinyin import lazy_pinyin
-from bs4 import BeautifulSoup, Comment, NavigableString
+from bs4 import BeautifulSoup, Comment, NavigableString tag
 
 # Language models for spaCy
 SPACY_MODELS = {
@@ -392,11 +392,12 @@ def detectis_exception_language(text):
 
 
 def has_do_not_translate_marker(element):
-    """
-    Walks up the DOM tree to check for attributes or classes indicating that the element should not be translated.
-    """
     current = element
     while current:
+        if not isinstance(current, Tag):
+            current = getattr(current, "parent", None)
+            continue
+
         if current.get("translate", "").lower() == "no":
             return True
 
@@ -416,7 +417,6 @@ def has_do_not_translate_marker(element):
 
         current = current.parent
     return False
-
 
 def is_translatable_text(tag):
     """
