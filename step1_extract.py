@@ -481,69 +481,101 @@ def extract_translatable_html(input_path, lang_code):
     with open("non_translatable.html", "w", encoding="utf-8") as f:
         f.write(str(soup))
 
+    flat_sentences_only = {
+        k: v for k, v in flattened_output.items()
+        if "_S" in k and "_W" not in k
+    }
+    
+    # Create categorized structure for flat_sentences_only
+    categorized_sentences = {
+        "1_word": [],
+        "2_words": [],
+        "3_words": [],
+        "4_or_more_words": []
+    }
+    
+    # Group blocks by text content and tag
+    text_tag_groups = {}
+    for block_id, text in flat_sentences_only.items():
+        # Get block number from block_id
+        block_num = block_id.split('_')[1]
+        full_block_id = f"BLOCK_{block_num}"
+        
+        # Get tag information from structured_output
+        block_data = structured_output.get(full_block_id, {})
+        tag_type = (
+            block_data.get("tag") or 
+            block_data.get("attr") or 
+            block_data.get("meta") or 
+            block_data.get("jsonld") or 
+            "unknown"
+        )
+        
+        # Create composite key for text and tag combination
+        key = f"{text}||{tag_type}"
+        
+        if key not in text_tag_groups:
+            text_tag_groups[key] = {
+                "text": text,
+                "tag": tag_type,
+                "blocks": []
+            }
+        
+        text_tag_groups[key]["blocks"].append(block_id)
+    
+    # Process groups and categorize by word count
+    for combo_data in text_tag_groups.values():
+        # Count words in text
+        word_count = len(combo_data["text"].split())
+        
+        # Determine category
+        if word_count == 1:
+            category = "1_word"
+        elif word_count == 2:
+            category = "2_words"
+        elif word_count == 3:
+            category = "3_words"
+        else:
+            category = "4_or_more_words"
+        
+        blocks = combo_data["blocks"]
+        
+        # For 1-3 word entries with the same text and tag, merge them
+        if category != "4_or_more_words" and len(blocks) > 1:
+            # Create a merged block ID key
+            merged_block_id = "=".join(blocks)
+            
+            # Create the entry with proper JSON structure
+            entry = {
+                merged_block_id: combo_data["text"],
+                "tag": f"<{combo_data['tag']}>"
+            }
+            categorized_sentences[category].append(entry)
+        else:
+            # For 4+ words or unique entries, add individual entries
+            for block_id in blocks:
+                entry = {
+                    block_id: combo_data["text"],
+                    "tag": f"<{combo_data['tag']}>"
+                }
+                categorized_sentences[category].append(entry)
+    
+    # Write the categorized sentences to file
+    with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
+        json.dump(categorized_sentences, f, indent=2, ensure_ascii=False)
 
-def count_words(text):
-    words = re.findall(r'\b\p{L}+\b', text)
-    return len(words)
+    
+    with open("translatable_flat.json", "w", encoding="utf-8") as f:
+         json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
+    
+    with open("translatable_structured.json", "w", encoding="utf-8") as f:
+        json.dump(structured_output, f, indent=2, ensure_ascii=False)
 
-# Step 1: Collect BLOCK_X_S1 entries only
-flat_sentences_only = {
-    k: v for k, v in flattened_output.items()
-    if "_S" in k and "_W" not in k
-}
+    with open("non_translatable.html", "w", encoding="utf-8") as f:
+        f.write(str(soup))
+print("✅ Step 1 complete: saved translatable_flat.json, translatable_structured.json, translatable_flat_sentences.json, and non_translatable.html.")
+ 
 
-# Step 2: Map BLOCK id to its type from structured_output
-block_type_map = {}
-for block_id, block_info in structured_output.items():
-    block_type = block_info.get("tag") or block_info.get("attr") or block_info.get("meta") or block_info.get("jsonld") or "unknown"
-    for s_key in block_info.get("tokens", {}):
-        block_type_map[f"{block_id}_{s_key}"] = block_type
-
-# Step 3: Categorize by word count and group by identical text+type
-grouped = {
-    "1_word": [],
-    "2_words": [],
-    "3_words": [],
-    "4_or_more_words": []
-}
-seen = defaultdict(list)  # (text, type) -> list of keys
-
-for key, text in flat_sentences_only.items():
-    block_type = block_type_map.get(key, "unknown")
-    word_count = count_words(text)
-
-    if word_count == 1:
-        category = "1_word"
-    elif word_count == 2:
-        category = "2_words"
-    elif word_count == 3:
-        category = "3_words"
-    else:
-        category = "4_or_more_words"
-
-    seen[(text, block_type)].append(key)
-
-# Step 4: Build final grouped structure
-for (text, block_type), keys in seen.items():
-    entry = {}
-    merged_key = "=".join(keys)
-    entry[merged_key] = text
-    entry["type"] = f"<{block_type}>" if not block_type.startswith("og:") else block_type
-    word_count = count_words(text)
-
-    if word_count == 1:
-        grouped["1_word"].append(entry)
-    elif word_count == 2:
-        grouped["2_words"].append(entry)
-    elif word_count == 3:
-        grouped["3_words"].append(entry)
-    else:
-        grouped["4_or_more_words"].append(entry)
-
-# Step 5: Save updated file
-with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
-    json.dump(grouped, f, indent=2, ensure_ascii=False)
-    print("✅ Step 1 complete: saved translatable_flat.json, translatable_structured.json, and non_translatable.html.")
 
 if __name__ == "__main__":
     # Define supported languages for help text
