@@ -72,6 +72,61 @@ EXCLUDED_META_PROPERTIES = {"og:url"}
 
 
 # Helper Functions -------------------------------------------------
+def categorize_flat_sentences(flat_sentences, structured_data):
+    categorized = {
+        "1_word": [],
+        "2_words": [],
+        "3_words": [],
+        "4+_words": []
+    }
+    
+    # Create a lookup for block metadata
+    block_metadata = {}
+    for block_id, data in structured_data.items():
+        tag = f"<{data.get('type', 'unknown')}>"  # Convert type to HTML-like tag
+        block_metadata[block_id] = tag
+
+    # Group blocks by text and tag
+    text_groups = {}
+    for block_id, text in flat_sentences.items():
+        if block_id not in block_metadata:
+            continue  # Skip orphaned blocks
+        
+        word_count = len(text.strip().split())
+        tag = block_metadata[block_id]
+        group_key = f"{text}||{tag}"
+        
+        if group_key not in text_groups:
+            text_groups[group_key] = {
+                "text": text,
+                "tag": tag,
+                "blocks": [],
+                "word_count": word_count
+            }
+        text_groups[group_key]["blocks"].append(block_id)
+
+    # Organize into categories
+    for group in text_groups.values():
+        category = (
+            "1_word" if group["word_count"] == 1 else
+            "2_words" if group["word_count"] == 2 else
+            "3_words" if group["word_count"] == 3 else
+            "4+_words"
+        )
+        
+        # Merge block IDs for short phrases with same text/tag
+        if group["word_count"] <= 3 and len(group["blocks"]) > 1:
+            merged_id = "=".join(group["blocks"])
+            entry = {merged_id: group["text"], "tag": group["tag"]}
+        else:
+            entry = {group["blocks"][0]: group["text"], "tag": group["tag"]}
+        
+        categorized[category].append(entry)
+
+    return categorized
+
+
+
 def is_pure_symbol(text):
     """Skip text with no alphabetic characters."""
     return not re.search(r'[A-Za-z]', text)
@@ -482,12 +537,18 @@ def extract_translatable_html(input_path, lang_code):
         f.write(str(soup))
 
     flat_sentences_only = {
-        k: v for k, v in flattened_output.items()
-        if "_S" in k and "_W" not in k
+    k: v for k, v in flattened_output.items()
+    if "_S" in k and "_W" not in k
     }
-    with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
-        json.dump(flat_sentences_only, f, indent=2, ensure_ascii=False)
+    categorized_output = categorize_flat_sentences(
+    flat_sentences_only,
+    reformatted_flattened  # From existing reformatted_flattened variable
+    )
 
+    with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
+    json.dump(categorized_output, f, indent=2, ensure_ascii=False)
+
+    
     print("✅ Step 1 complete: saved translatable_flat.json, translatable_structured.json, and non_translatable.html.")
 
 if __name__ == "__main__":
