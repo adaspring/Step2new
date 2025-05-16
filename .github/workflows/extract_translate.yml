@@ -41,6 +41,7 @@ on:
         type: choice
         options:
           - FR
+          - EN
           - ES
           - DE
           - IT
