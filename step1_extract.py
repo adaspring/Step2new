@@ -80,29 +80,30 @@ def categorize_flat_sentences(flat_sentences, structured_data):
         "4+_words": []
     }
     
-    # Create a lookup for block metadata
+    # Create a lookup for parent block metadata
     block_metadata = {}
     for block_id, data in structured_data.items():
-        # Get the actual HTML tag name from original structured data
+        # Get the actual HTML element/attribute type
         tag_name = data.get('tag', 
                       data.get('attr', 
                         data.get('meta', 
                           data.get('jsonld', 'unknown'))))
-        tag = f"<{tag_name}>"  # Convert to HTML-like tag
-        block_metadata[block_id] = tag
+        block_metadata[block_id] = f"<{tag_name}>"
 
-    # Group blocks by text and tag
+    # Process sentence-level blocks
     text_groups = {}
-    for block_id, text in flat_sentences.items():
-        if block_id not in block_metadata:
-            print(f"⚠️ Missing metadata for block {block_id}")
+    for sentence_id, text in flat_sentences.items():
+        # Extract parent block ID (e.g., "BLOCK_1" from "BLOCK_1_S1")
+        parent_block_id = "_".join(sentence_id.split("_")[:2])
+        
+        if parent_block_id not in block_metadata:
+            print(f"⚠️ Missing parent block metadata for {sentence_id}")
             continue
-        
-        # Proper word counting with multiple space handling
+
+        tag = block_metadata[parent_block_id]
         word_count = len(re.findall(r'\S+', text))
-        tag = block_metadata[block_id]
         group_key = f"{text}||{tag}"
-        
+
         if group_key not in text_groups:
             text_groups[group_key] = {
                 "text": text,
@@ -110,11 +111,9 @@ def categorize_flat_sentences(flat_sentences, structured_data):
                 "blocks": [],
                 "word_count": word_count
             }
-        text_groups[group_key]["blocks"].append(block_id)
+        text_groups[group_key]["blocks"].append(sentence_id)
 
-    # Organize into categories with debugging
-    print(f"Found {len(text_groups)} text groups")
-    
+    # Organize into categories
     for group in text_groups.values():
         category = (
             "1_word" if group["word_count"] == 1 else
@@ -123,7 +122,7 @@ def categorize_flat_sentences(flat_sentences, structured_data):
             "4+_words"
         )
         
-        # Merge block IDs for short phrases with same text/tag
+        # Merge blocks with same text/tag
         if group["word_count"] <= 3 and len(group["blocks"]) > 1:
             merged_id = "=".join(group["blocks"])
             entry = {merged_id: group["text"], "tag": group["tag"]}
@@ -131,12 +130,9 @@ def categorize_flat_sentences(flat_sentences, structured_data):
             entry = {group["blocks"][0]: group["text"], "tag": group["tag"]}
         
         categorized[category].append(entry)
-        print(f"Added to {category}: {entry}")
 
     return categorized
-
-
-
+    
 def is_pure_symbol(text):
     """Skip text with no alphabetic characters."""
     return not re.search(r'[A-Za-z]', text)
