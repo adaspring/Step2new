@@ -563,6 +563,4 @@ def extract_translatable_html(input_path, lang_code):
     # Write the categorized sentences to file
     with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
         json.dump(categorized_sentences, f, indent=2, ensure_ascii=False)
-
-
     
