@@ -538,15 +538,6 @@ structured_output = new_structured_output
 flattened_output = new_flattened_output
 reformatted_flattened = new_reformatted_flattened
 
-    
-    with open("translatable_flat.json", "w", encoding="utf-8") as f:
-         json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
-    
-    with open("translatable_structured.json", "w", encoding="utf-8") as f:
-        json.dump(structured_output, f, indent=2, ensure_ascii=False)
-
-    with open("non_translatable.html", "w", encoding="utf-8") as f:
-        f.write(str(soup))
 
     flat_sentences_only = {
         k: v for k, v in flattened_output.items()
