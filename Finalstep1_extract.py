@@ -72,6 +72,18 @@ EXCLUDED_META_PROPERTIES = {"og:url"}
 
 
 # Helper Functions -------------------------------------------------
+def get_element_position(element):
+    """Get a numeric representation of element's position in the document."""
+    if isinstance(element, NavigableString):
+        element = element.parent
+    
+    # Get all elements in the document
+    all_elements = list(element.find_all_previous()) + [element] + list(element.find_all_next())
+    
+    # Return the index of the current element
+    return all_elements.index(element)
+
+
 def is_pure_symbol(text):
     """Skip text with no alphabetic characters."""
     return not re.search(r'[A-Za-z]', text)
@@ -360,7 +372,8 @@ def extract_translatable_html(input_path, lang_code):
 
     with open(input_path, "r", encoding="utf-8") as f:
         soup = BeautifulSoup(f, "html5lib")
-
+    
+    position_mapping = {}  # Maps positions to block IDs
     structured_output = {}
     flattened_output = {}
     block_counter = 1
@@ -385,7 +398,8 @@ def extract_translatable_html(input_path, lang_code):
                 if not isinstance(replacement_content, NavigableString):
                     replacement_content = NavigableString(str(replacement_content))
                 element.replace_with(replacement_content)
-                
+                position = get_element_position(element)
+                position_mapping[position] = block_id
                 block_counter += 1
 
     for tag in soup.find_all():
@@ -403,6 +417,8 @@ def extract_translatable_html(input_path, lang_code):
                     flattened_output.update(flattened)
                     if sentence_tokens:
                         tag[attr] = sentence_tokens[0][0]
+                    position = get_element_position(tag)
+                    position_mapping[position] = block_id
                     block_counter += 1
 
     for meta in soup.find_all("meta"):
@@ -423,6 +439,9 @@ def extract_translatable_html(input_path, lang_code):
             flattened_output.update(flattened)
             if sentence_tokens:
                 meta["content"] = sentence_tokens[0][0]
+            
+            position = get_element_position(meta)
+            position_mapping[position] = block_id
             block_counter += 1
 
     title_tag = soup.title
@@ -434,6 +453,8 @@ def extract_translatable_html(input_path, lang_code):
         flattened_output.update(flattened)
         if sentence_tokens:
             title_tag.string.replace_with(sentence_tokens[0][0])
+        position = get_element_position(title_tag)
+        position_mapping[position] = block_id
         block_counter += 1
 
     for script_tag in soup.find_all("script", {"type": "application/ld+json"}):
