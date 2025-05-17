@@ -233,6 +233,23 @@ def is_translatable_text(tag):
     return default_translatable
 
 
+# New function to get element position
+def get_element_position(element):
+    """Get a numeric representation of element's position in the document."""
+    if isinstance(element, NavigableString):
+        element = element.parent
+    
+    # Get position based on source line number
+    if hasattr(element, 'sourceline') and element.sourceline is not None:
+        return element.sourceline
+    
+    # Fallback to tree position
+    parents = list(element.parents)
+    siblings_before = len(list(element.find_previous_siblings()))
+    
+    # Calculate position based on depth and sibling order
+    return (len(parents) * 10000) + siblings_before
+
 
 def contains_chinese(text):
     return re.search(r'[\u4e00-\u9fff]', text) is not None
@@ -327,7 +344,7 @@ def process_text_block(block_id, text, default_nlp):
     return structured, flattened, sentence_tokens
 
 
-def extract_from_jsonld(obj, block_counter, nlp, structured_output, flattened_output):
+def extract_from_jsonld(obj, block_counter, nlp, structured_output, flattened_output, position_mapping=None, jsonld_pos=0):
     if isinstance(obj, dict):
         for key in list(obj.keys()):
             value = obj[key]
@@ -346,12 +363,20 @@ def extract_from_jsonld(obj, block_counter, nlp, structured_output, flattened_ou
                     obj[key] = tokens[0][0]
                     structured_output[block_id] = {"jsonld": key, "tokens": structured}
                     flattened_output.update(flattened)
+                    
+                    # Track position
+                    if position_mapping is not None:
+                        # For JSON-LD, we use a high base position and increment for each key
+                        position_mapping[jsonld_pos + block_counter] = block_id
+                        
                     block_counter += 1
             elif isinstance(value, (dict, list)):
-                block_counter = extract_from_jsonld(value, block_counter, nlp, structured_output, flattened_output)
+                block_counter = extract_from_jsonld(value, block_counter, nlp, structured_output, flattened_output, 
+                                                   position_mapping, jsonld_pos)
     elif isinstance(obj, list):
         for i in range(len(obj)):
-            block_counter = extract_from_jsonld(obj[i], block_counter, nlp, structured_output, flattened_output)
+            block_counter = extract_from_jsonld(obj[i], block_counter, nlp, structured_output, flattened_output, 
+                                               position_mapping, jsonld_pos)
     return block_counter
 
 
@@ -363,51 +388,27 @@ def extract_translatable_html(input_path, lang_code):
 
     structured_output = {}
     flattened_output = {}
+    position_mapping = {}  # Maps positions to block IDs
     block_counter = 1
 
-    elements = []
-    for element in soup.descendants:
-        if isinstance(element, NavigableString) and is_translatable_text(element):
-            elements.append(element)
-
-    for element in elements:
-        text = element.strip()
-        if not text:
-           continue
-
-        structured, flattened, sentence_tokens = process_text_block(f"BLOCK_{block_counter}", text, nlp)
-
+    # Process title tag first (it should be one of the earliest elements)
+    title_tag = soup.title
+    if title_tag and title_tag.string and title_tag.string.strip():
+        block_id = f"BLOCK_{block_counter}"
+        text = title_tag.string.strip()
+        structured, flattened, sentence_tokens = process_text_block(block_id, text, nlp)
+        structured_output[block_id] = {"tag": "title", "tokens": structured}
+        flattened_output.update(flattened)
+        
+        # Track position
+        position = get_element_position(title_tag)
+        position_mapping[position] = block_id
+        
         if sentence_tokens:
-            block_id = f"BLOCK_{block_counter}"
-            parent_tag = element.parent.name if element.parent else "no_parent"  # Fix 2: Parent check
-            structured_output[block_id] = {"tag": parent_tag, "tokens": structured}
-            flattened_output.update(flattened)
-        
-            # Fix 3: Safe replacement
-            replacement_content = " ".join([token[0] for token in sentence_tokens])
-            if not isinstance(replacement_content, NavigableString):
-                replacement_content = NavigableString(str(replacement_content))
-            element.replace_with(replacement_content)
-        
-            block_counter += 1
+            title_tag.string.replace_with(sentence_tokens[0][0])
+        block_counter += 1
 
-    for tag in soup.find_all():
-        for attr in TRANSLATABLE_ATTRS:
-            if (
-                attr in tag.attrs and 
-                isinstance(tag[attr], str) and 
-                attr not in BLOCKED_ATTRS
-            ):
-                value = tag[attr].strip()
-                if value:
-                    block_id = f"BLOCK_{block_counter}"
-                    structured, flattened, sentence_tokens = process_text_block(block_id, value, nlp)
-                    structured_output[block_id] = {"attr": attr, "tokens": structured}
-                    flattened_output.update(flattened)
-                    if sentence_tokens:
-                        tag[attr] = sentence_tokens[0][0]
-                    block_counter += 1
-
+    # Process meta tags
     for meta in soup.find_all("meta"):
         name = meta.get("name", "").lower()
         prop = meta.get("property", "").lower()
@@ -424,205 +425,122 @@ def extract_translatable_html(input_path, lang_code):
             structured, flattened, sentence_tokens = process_text_block(block_id, content, nlp)
             structured_output[block_id] = {"meta": name or prop, "tokens": structured}
             flattened_output.update(flattened)
+            
+            # Track position
+            position = get_element_position(meta)
+            position_mapping[position] = block_id
+            
             if sentence_tokens:
                 meta["content"] = sentence_tokens[0][0]
             block_counter += 1
 
-    title_tag = soup.title
-    if title_tag and title_tag.string and title_tag.string.strip():
-        block_id = f"BLOCK_{block_counter}"
-        text = title_tag.string.strip()
-        structured, flattened, sentence_tokens = process_text_block(block_id, text, nlp)
-        structured_output[block_id] = {"tag": "title", "tokens": structured}
-        flattened_output.update(flattened)
-        if sentence_tokens:
-            title_tag.string.replace_with(sentence_tokens[0][0])
-        block_counter += 1
+    # Process regular text elements
+    elements = list(soup.find_all(string=True))  # Fix 1: Precompute elements
+    for element in elements:
+        if is_translatable_text(element):
+            text = element.strip()
+            if not text:
+                continue
 
+            structured, flattened, sentence_tokens = process_text_block(f"BLOCK_{block_counter}", text, nlp)
+
+            if sentence_tokens:
+                block_id = f"BLOCK_{block_counter}"
+                parent_tag = element.parent.name if element.parent else "no_parent"  # Fix 2: Parent check
+                structured_output[block_id] = {"tag": parent_tag, "tokens": structured}
+                flattened_output.update(flattened)
+                
+                # Track position
+                position = get_element_position(element)
+                position_mapping[position] = block_id
+                
+                # Fix 3: Safe replacement
+                replacement_content = " ".join([token[0] for token in sentence_tokens])
+                if not isinstance(replacement_content, NavigableString):
+                    replacement_content = NavigableString(str(replacement_content))
+                element.replace_with(replacement_content)
+                
+                block_counter += 1
+
+    # Process attributes
+    for tag in soup.find_all():
+        for attr in TRANSLATABLE_ATTRS:
+            if (
+                attr in tag.attrs and 
+                isinstance(tag[attr], str) and 
+                attr not in BLOCKED_ATTRS
+            ):
+                value = tag[attr].strip()
+                if value:
+                    block_id = f"BLOCK_{block_counter}"
+                    structured, flattened, sentence_tokens = process_text_block(block_id, value, nlp)
+                    structured_output[block_id] = {"attr": attr, "tokens": structured}
+                    flattened_output.update(flattened)
+                    
+                    # Track position
+                    position = get_element_position(tag) * 1.1  # Slight offset for attributes
+                    position_mapping[position] = block_id
+                    
+                    if sentence_tokens:
+                        tag[attr] = sentence_tokens[0][0]
+                    block_counter += 1
+
+    # Process JSON-LD (using a high position base to place them after HTML elements)
+    jsonld_position_base = 1000000  # Very high number to ensure JSON-LD comes last
     for script_tag in soup.find_all("script", {"type": "application/ld+json"}):
         try:
             raw_json = script_tag.string.strip()
             data = json.loads(raw_json)
-            block_counter = extract_from_jsonld(data, block_counter, nlp, structured_output, flattened_output)
+            block_counter = extract_from_jsonld(data, block_counter, nlp, structured_output, flattened_output, 
+                                               position_mapping, jsonld_position_base)
             script_tag.string.replace_with(json.dumps(data, ensure_ascii=False, indent=2))
         except Exception as e:
             print(f"⚠️ Failed to parse or process JSON-LD: {e}")
             continue
 
+    # Renumber blocks based on document position
+    sorted_positions = sorted(position_mapping.keys())
+    new_block_mapping = {}
+    for new_idx, position in enumerate(sorted_positions, 1):
+        old_block_id = position_mapping[position]
+        new_block_id = f"BLOCK_{new_idx}"
+        new_block_mapping[old_block_id] = new_block_id
 
-    reformatted_flattened = {}
-    for block_id, block_data in structured_output.items():
-        # Determine the block type (tag/attr/meta/jsonld)
-        block_type = (
-            block_data.get("tag") or 
-            block_data.get("attr") or 
-            block_data.get("meta") or 
-            block_data.get("jsonld") or 
-            "unknown"
-        )
+    # Update all data structures with new block IDs
+    new_structured_output = {}
+    new_flattened_output = {}
+
+    # Update structured_output
+    for old_id, new_id in new_block_mapping.items():
+        if old_id in structured_output:
+            new_structured_output[new_id] = structured_output[old_id]
     
-        # Get full text (fallback: join all sentences)
-        full_text = block_data.get("text", " ".join(
-            s_data["text"] for s_data in block_data["tokens"].values()
-        ))
-    
-        reformatted_flattened[block_id] = {
-            "type": block_type,  # "p", "alt", "og:title", etc.
-            "text": full_text,
-            "segments": {  # Renamed from "tokens" for clarity
-                f"{block_id}_{s_key}": s_data["text"]
-                for s_key, s_data in block_data["tokens"].items()
-            }
-        }
+    # Update flattened_output
+    for key, value in flattened_output.items():
+        new_key = key
+        for old_id, new_id in new_block_mapping.items():
+            old_block_num = old_id.split('_')[1]
+            if key.startswith(f"BLOCK_{old_block_num}_"):
+                new_block_num = new_id.split('_')[1]
+                new_key = key.replace(f"BLOCK_{old_block_num}_", f"BLOCK_{new_block_num}_")
+                break
+        new_flattened_output[new_key] = value
 
-    with open("translatable_flat.json", "w", encoding="utf-8") as f:
-         json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
-    
-    with open("translatable_structured.json", "w", encoding="utf-8") as f:
-        json.dump(structured_output, f, indent=2, ensure_ascii=False)
+    # Replace original data with renumbered versions
+    structured_output = new_structured_output
+    flattened_output = new_flattened_output
 
-    with open("non_translatable.html", "w", encoding="utf-8") as f:
-        f.write(str(soup))
+    # Now process html with renumbered blocks
+    for element in soup.find_all(string=True):
+        text = element.strip()
+        if text and text.startswith("BLOCK_"):
+            for old_id, new_id in new_block_mapping.items():
+                if text.startswith(old_id):
+                    new_text = text.replace(old_id, new_id)
+                    element.replace_with(new_text)
+                    break
 
-    flat_sentences_only = {
-        k: v for k, v in flattened_output.items()
-        if "_S" in k and "_W" not in k
-    }
-    
-    # Create categorized structure for flat_sentences_only
-    categorized_sentences = {
-        "1_word": [],
-        "2_words": [],
-        "3_words": [],
-        "4_or_more_words": []
-    }
-    
-    # Group blocks by text content and tag
-    text_tag_groups = {}
-    for block_id, text in flat_sentences_only.items():
-        # Get block number from block_id
-        block_num = block_id.split('_')[1]
-        full_block_id = f"BLOCK_{block_num}"
-        
-        # Get tag information from structured_output
-        block_data = structured_output.get(full_block_id, {})
-        tag_type = (
-            block_data.get("tag") or 
-            block_data.get("attr") or 
-            block_data.get("meta") or 
-            block_data.get("jsonld") or 
-            "unknown"
-        )
-        
-        # Create composite key for text and tag combination
-        key = f"{text}||{tag_type}"
-        
-        if key not in text_tag_groups:
-            text_tag_groups[key] = {
-                "text": text,
-                "tag": tag_type,
-                "blocks": []
-            }
-        
-        text_tag_groups[key]["blocks"].append(block_id)
-    
-    # Process groups and categorize by word count
-    for combo_data in text_tag_groups.values():
-        # Count words in text
-        word_count = len(combo_data["text"].split())
-        
-        # Determine category
-        if word_count == 1:
-            category = "1_word"
-        elif word_count == 2:
-            category = "2_words"
-        elif word_count == 3:
-            category = "3_words"
-        else:
-            category = "4_or_more_words"
-        
-        blocks = combo_data["blocks"]
-        
-        # For 1-3 word entries with the same text and tag, merge them
-        if category != "4_or_more_words" and len(blocks) > 1:
-            # Create a merged block ID key
-            merged_block_id = "=".join(blocks)
-            
-            # Create the entry with proper JSON structure
-            entry = {
-                merged_block_id: combo_data["text"],
-                "tag": f"<{combo_data['tag']}>"
-            }
-            categorized_sentences[category].append(entry)
-        else:
-            # For 4+ words or unique entries, add individual entries
-            for block_id in blocks:
-                entry = {
-                    block_id: combo_data["text"],
-                    "tag": f"<{combo_data['tag']}>"
-                }
-                categorized_sentences[category].append(entry)
-    
-    # Write the categorized sentences to file
-    with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
-        json.dump(categorized_sentences, f, indent=2, ensure_ascii=False)
-
-    
-    with open("translatable_flat.json", "w", encoding="utf-8") as f:
-         json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
-    
-    with open("translatable_structured.json", "w", encoding="utf-8") as f:
-        json.dump(structured_output, f, indent=2, ensure_ascii=False)
-
-    with open("non_translatable.html", "w", encoding="utf-8") as f:
-        f.write(str(soup))
-print("✅ Step 1 complete: saved translatable_flat.json, translatable_structured.json, translatable_flat_sentences.json, and non_translatable.html.")
- 
-
-
-if __name__ == "__main__":
-    # Define supported languages for help text
-    SUPPORTED_LANGS = ", ".join(sorted(SPACY_MODELS.keys()))
-
-    parser = argparse.ArgumentParser(
-        description="Extract translatable text from HTML.",
-        formatter_class=argparse.RawTextHelpFormatter  # For multi-line help
-    )
-    
-    # Required arguments
-    parser.add_argument(
-        "input_file",
-        help="Path to the HTML file to process"
-    )
-    
-    # Primary language (MANDATORY)
-    parser.add_argument(
-        "--lang",
-        choices=SPACY_MODELS.keys(),
-        required=True,
-        metavar="LANG_CODE",
-        help=f"""\
-Primary language of the document (REQUIRED).
-Supported codes: {SUPPORTED_LANGS}
-Examples: --lang en (English), --lang zh (Chinese)"""
-    )
-
-    # Secondary language (OPTIONAL)
-    parser.add_argument(
-        "--secondary-lang",
-        choices=SPACY_MODELS.keys(),
-        metavar="LANG_CODE",
-        help=f"""\
-Optional secondary language for mixed-content detection.
-Supported codes: {SUPPORTED_LANGS}
-Examples: --secondary-lang fr (French), --secondary-lang es (Spanish)"""
-    )
-
-    args = parser.parse_args()
-
-    # Validate language priority
-    if args.secondary_lang and args.secondary_lang == args.lang:
-        parser.error("Primary and secondary languages cannot be the same!")
-
-    # Run extraction
-    extract_translatable_html(args.input_file, args.lang)
+    # Update attributes
+    for tag in soup.find_all():
+        for attr in tag.attrs:
+            if isinstance(tag
