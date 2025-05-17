@@ -493,6 +493,52 @@ def extract_translatable_html(input_path, lang_code):
             }
         }
 
+
+          # Renumber blocks based on document position
+sorted_positions = sorted(position_mapping.keys())
+new_block_mapping = {}
+for new_idx, position in enumerate(sorted_positions, 1):
+    old_block_id = position_mapping[position]
+    new_block_id = f"BLOCK_{new_idx}"
+    new_block_mapping[old_block_id] = new_block_id
+
+# Update all data structures with new block IDs
+new_structured_output = {}
+new_flattened_output = {}
+new_reformatted_flattened = {}
+
+for old_id, new_id in new_block_mapping.items():
+    if old_id in structured_output:
+        new_structured_output[new_id] = structured_output[old_id]
+    
+    # Update flattened_output
+    for key, value in flattened_output.items():
+        old_block_num = old_id.split('_')[1]
+        if key.startswith(f"BLOCK_{old_block_num}"):
+            new_block_num = new_id.split('_')[1]
+            new_key = key.replace(f"BLOCK_{old_block_num}", f"BLOCK_{new_block_num}")
+            new_flattened_output[new_key] = value
+
+    # Update reformatted_flattened
+    if old_id in reformatted_flattened:
+        block_data = reformatted_flattened[old_id]
+        segments = block_data["segments"]
+        new_segments = {}
+        for seg_key, seg_value in segments.items():
+            old_block_num = old_id.split('_')[1]
+            new_block_num = new_id.split('_')[1]
+            new_seg_key = seg_key.replace(f"BLOCK_{old_block_num}", f"BLOCK_{new_block_num}")
+            new_segments[new_seg_key] = seg_value
+        
+        block_data["segments"] = new_segments
+        new_reformatted_flattened[new_id] = block_data
+
+# Replace original data structures with renumbered versions
+structured_output = new_structured_output
+flattened_output = new_flattened_output
+reformatted_flattened = new_reformatted_flattened
+
+    
     with open("translatable_flat.json", "w", encoding="utf-8") as f:
          json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
     
