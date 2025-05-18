@@ -248,9 +248,10 @@ def main():
             segment_file=args.segments
         )
 
-        # Generate GPT-friendly file
-        with open("translatable_flat_sentences.json", "r", encoding="utf-8") as f:
-            original_structured = json.load(f)
+        
+        # Generate GPT input files
+        with open("Finaltranslatable_flat_sentences.json", "r", encoding="utf-8") as f:
+             original_structured = json.load(f)
 
         build_gpt_friendly_input_grouped(
             translated_map=translations,
@@ -258,6 +259,12 @@ def main():
             output_file="gpt_ready_grouped.txt"
         )
 
+        export_to_jsonl(
+             translated_map=translations,
+             original_structured_json=original_structured,
+             output_file="gpt_ready_grouped.jsonl"
+        )
+        
         if args.apply:
             apply_translations(
                 args.input,
