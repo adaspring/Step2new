@@ -506,10 +506,10 @@ def extract_translatable_html(input_path, lang_code):
         block_data["segments"] = new_segments
         new_reformatted_flattened[new_id] = block_data
 
-# Replace original data structures
-structured_output = new_structured_output
-flattened_output = new_flattened_output
-reformatted_flattened = new_reformatted_flattened
+   # Replace original data structures
+   structured_output = new_structured_output
+   flattened_output = new_flattened_output
+   reformatted_flattened = new_reformatted_flattened
 
     
     reformatted_flattened = {}
