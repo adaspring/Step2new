@@ -249,7 +249,7 @@ def main():
         )
 
         # Generate GPT-friendly file
-        with open("Finaltranslatable_flat_sentences.json", "r", encoding="utf-8") as f:
+        with open("translatable_flat_sentences.json", "r", encoding="utf-8") as f:
             original_structured = json.load(f)
 
         build_gpt_friendly_input_grouped(
