@@ -372,11 +372,11 @@ def extract_translatable_html(input_path, lang_code):
 
     with open(input_path, "r", encoding="utf-8") as f:
         soup = BeautifulSoup(f, "html5lib")
-    
-    position_mapping = {}  # Maps positions to block IDs
+
     structured_output = {}
     flattened_output = {}
     block_counter = 1
+    position_mapping = {}  # Maps document positions to block IDs
 
     elements = list(soup.find_all(string=True))  # Fix 1: Precompute elements
     for element in elements:
@@ -386,9 +386,11 @@ def extract_translatable_html(input_path, lang_code):
                 continue
 
             structured, flattened, sentence_tokens = process_text_block(f"BLOCK_{block_counter}", text, nlp)
-
+            
             if sentence_tokens:
                 block_id = f"BLOCK_{block_counter}"
+                position = get_element_position(element)
+                position_mapping[position] = block_id
                 parent_tag = element.parent.name if element.parent else "no_parent"  # Fix 2: Parent check
                 structured_output[block_id] = {"tag": parent_tag, "tokens": structured}
                 flattened_output.update(flattened)
@@ -398,8 +400,7 @@ def extract_translatable_html(input_path, lang_code):
                 if not isinstance(replacement_content, NavigableString):
                     replacement_content = NavigableString(str(replacement_content))
                 element.replace_with(replacement_content)
-                position = get_element_position(element)
-                position_mapping[position] = block_id
+                
                 block_counter += 1
 
     for tag in soup.find_all():
@@ -412,13 +413,13 @@ def extract_translatable_html(input_path, lang_code):
                 value = tag[attr].strip()
                 if value:
                     block_id = f"BLOCK_{block_counter}"
+                    position = get_element_position(tag)
+                    position_mapping[position] = block_id
                     structured, flattened, sentence_tokens = process_text_block(block_id, value, nlp)
                     structured_output[block_id] = {"attr": attr, "tokens": structured}
                     flattened_output.update(flattened)
                     if sentence_tokens:
                         tag[attr] = sentence_tokens[0][0]
-                    position = get_element_position(tag)
-                    position_mapping[position] = block_id
                     block_counter += 1
 
     for meta in soup.find_all("meta"):
@@ -434,27 +435,26 @@ def extract_translatable_html(input_path, lang_code):
             (prop and prop in SEO_META_FIELDS["property"])
         ):
             block_id = f"BLOCK_{block_counter}"
+            position = get_element_position(meta)
+            position_mapping[position] = block_id
             structured, flattened, sentence_tokens = process_text_block(block_id, content, nlp)
             structured_output[block_id] = {"meta": name or prop, "tokens": structured}
             flattened_output.update(flattened)
             if sentence_tokens:
                 meta["content"] = sentence_tokens[0][0]
-            
-            position = get_element_position(meta)
-            position_mapping[position] = block_id
             block_counter += 1
 
     title_tag = soup.title
     if title_tag and title_tag.string and title_tag.string.strip():
         block_id = f"BLOCK_{block_counter}"
+        position = get_element_position(title_tag)
+        position_mapping[position] = block_id
         text = title_tag.string.strip()
         structured, flattened, sentence_tokens = process_text_block(block_id, text, nlp)
         structured_output[block_id] = {"tag": "title", "tokens": structured}
         flattened_output.update(flattened)
         if sentence_tokens:
             title_tag.string.replace_with(sentence_tokens[0][0])
-        position = get_element_position(title_tag)
-        position_mapping[position] = block_id
         block_counter += 1
 
     for script_tag in soup.find_all("script", {"type": "application/ld+json"}):
@@ -467,7 +467,51 @@ def extract_translatable_html(input_path, lang_code):
             print(f"⚠️ Failed to parse or process JSON-LD: {e}")
             continue
 
+    # Renumber blocks based on document position
+    sorted_positions = sorted(position_mapping.keys())
+    new_block_mapping = {}
+    for new_idx, position in enumerate(sorted_positions, 1):
+    old_block_id = position_mapping[position]
+    new_block_id = f"BLOCK_{new_idx}"
+    new_block_mapping[old_block_id] = new_block_id
 
+    # Update all data structures with new block IDs
+    new_structured_output = {}
+    new_flattened_output = {}
+    new_reformatted_flattened = {}
+
+    for old_id, new_id in new_block_mapping.items():
+        if old_id in structured_output:
+           new_structured_output[new_id] = structured_output[old_id]
+    
+    # Update flattened_output
+    for key, value in flattened_output.items():
+        old_block_num = old_id.split('_')[1]
+        if key.startswith(f"BLOCK_{old_block_num}"):
+            new_block_num = new_id.split('_')[1]
+            new_key = key.replace(f"BLOCK_{old_block_num}", f"BLOCK_{new_block_num}")
+            new_flattened_output[new_key] = value
+
+    # Update reformatted_flattened
+        if old_id in reformatted_flattened:
+           block_data = reformatted_flattened[old_id]
+           segments = block_data["segments"]
+           new_segments = {}
+        for seg_key, seg_value in segments.items():
+            old_block_num = old_id.split('_')[1]
+            new_block_num = new_id.split('_')[1]
+            new_seg_key = seg_key.replace(f"BLOCK_{old_block_num}", f"BLOCK_{new_block_num}")
+            new_segments[new_seg_key] = seg_value
+        
+        block_data["segments"] = new_segments
+        new_reformatted_flattened[new_id] = block_data
+
+# Replace original data structures
+structured_output = new_structured_output
+flattened_output = new_flattened_output
+reformatted_flattened = new_reformatted_flattened
+
+    
     reformatted_flattened = {}
     for block_id, block_data in structured_output.items():
         # Determine the block type (tag/attr/meta/jsonld)
@@ -493,51 +537,14 @@ def extract_translatable_html(input_path, lang_code):
             }
         }
 
-
-          # Renumber blocks based on document position
-sorted_positions = sorted(position_mapping.keys())
-new_block_mapping = {}
-for new_idx, position in enumerate(sorted_positions, 1):
-    old_block_id = position_mapping[position]
-    new_block_id = f"BLOCK_{new_idx}"
-    new_block_mapping[old_block_id] = new_block_id
-
-# Update all data structures with new block IDs
-new_structured_output = {}
-new_flattened_output = {}
-new_reformatted_flattened = {}
-
-for old_id, new_id in new_block_mapping.items():
-    if old_id in structured_output:
-        new_structured_output[new_id] = structured_output[old_id]
+    with open("translatable_flat.json", "w", encoding="utf-8") as f:
+         json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
     
-    # Update flattened_output
-    for key, value in flattened_output.items():
-        old_block_num = old_id.split('_')[1]
-        if key.startswith(f"BLOCK_{old_block_num}"):
-            new_block_num = new_id.split('_')[1]
-            new_key = key.replace(f"BLOCK_{old_block_num}", f"BLOCK_{new_block_num}")
-            new_flattened_output[new_key] = value
+    with open("translatable_structured.json", "w", encoding="utf-8") as f:
+        json.dump(structured_output, f, indent=2, ensure_ascii=False)
 
-    # Update reformatted_flattened
-    if old_id in reformatted_flattened:
-        block_data = reformatted_flattened[old_id]
-        segments = block_data["segments"]
-        new_segments = {}
-        for seg_key, seg_value in segments.items():
-            old_block_num = old_id.split('_')[1]
-            new_block_num = new_id.split('_')[1]
-            new_seg_key = seg_key.replace(f"BLOCK_{old_block_num}", f"BLOCK_{new_block_num}")
-            new_segments[new_seg_key] = seg_value
-        
-        block_data["segments"] = new_segments
-        new_reformatted_flattened[new_id] = block_data
-
-# Replace original data structures with renumbered versions
-structured_output = new_structured_output
-flattened_output = new_flattened_output
-reformatted_flattened = new_reformatted_flattened
-
+    with open("non_translatable.html", "w", encoding="utf-8") as f:
+        f.write(str(soup))
 
     flat_sentences_only = {
         k: v for k, v in flattened_output.items()
@@ -622,62 +629,5 @@ reformatted_flattened = new_reformatted_flattened
     with open("translatable_flat_sentences.json", "w", encoding="utf-8") as f:
         json.dump(categorized_sentences, f, indent=2, ensure_ascii=False)
 
+
     
-    with open("translatable_flat.json", "w", encoding="utf-8") as f:
-         json.dump(reformatted_flattened, f, indent=2, ensure_ascii=False)
-    
-    with open("translatable_structured.json", "w", encoding="utf-8") as f:
-        json.dump(structured_output, f, indent=2, ensure_ascii=False)
-
-    with open("non_translatable.html", "w", encoding="utf-8") as f:
-        f.write(str(soup))
-print("✅ Step 1 complete: saved translatable_flat.json, translatable_structured.json, translatable_flat_sentences.json, and non_translatable.html.")
- 
-
-
-if __name__ == "__main__":
-    # Define supported languages for help text
-    SUPPORTED_LANGS = ", ".join(sorted(SPACY_MODELS.keys()))
-
-    parser = argparse.ArgumentParser(
-        description="Extract translatable text from HTML.",
-        formatter_class=argparse.RawTextHelpFormatter  # For multi-line help
-    )
-    
-    # Required arguments
-    parser.add_argument(
-        "input_file",
-        help="Path to the HTML file to process"
-    )
-    
-    # Primary language (MANDATORY)
-    parser.add_argument(
-        "--lang",
-        choices=SPACY_MODELS.keys(),
-        required=True,
-        metavar="LANG_CODE",
-        help=f"""\
-Primary language of the document (REQUIRED).
-Supported codes: {SUPPORTED_LANGS}
-Examples: --lang en (English), --lang zh (Chinese)"""
-    )
-
-    # Secondary language (OPTIONAL)
-    parser.add_argument(
-        "--secondary-lang",
-        choices=SPACY_MODELS.keys(),
-        metavar="LANG_CODE",
-        help=f"""\
-Optional secondary language for mixed-content detection.
-Supported codes: {SUPPORTED_LANGS}
-Examples: --secondary-lang fr (French), --secondary-lang es (Spanish)"""
-    )
-
-    args = parser.parse_args()
-
-    # Validate language priority
-    if args.secondary_lang and args.secondary_lang == args.lang:
-        parser.error("Primary and secondary languages cannot be the same!")
-
-    # Run extraction
-    extract_translatable_html(args.input_file, args.lang)
