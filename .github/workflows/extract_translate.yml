@@ -127,4 +127,6 @@ jobs:
             non_translatable.html
             translations.json
             segments_only.json
+            gpt_ready_grouped.txt
+            gpt_ready_grouped.jsonl
             
