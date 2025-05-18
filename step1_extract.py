@@ -471,9 +471,9 @@ def extract_translatable_html(input_path, lang_code):
     sorted_positions = sorted(position_mapping.keys())
     new_block_mapping = {}
     for new_idx, position in enumerate(sorted_positions, 1):
-    old_block_id = position_mapping[position]
-    new_block_id = f"BLOCK_{new_idx}"
-    new_block_mapping[old_block_id] = new_block_id
+        old_block_id = position_mapping[position]
+        new_block_id = f"BLOCK_{new_idx}"
+        new_block_mapping[old_block_id] = new_block_id
 
     # Update all data structures with new block IDs
     new_structured_output = {}
