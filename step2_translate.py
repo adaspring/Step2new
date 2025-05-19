@@ -222,6 +222,28 @@ def build_gpt_friendly_input_grouped(translated_map, original_structured_json, o
 
     print(f"✅ GPT-ready input saved to {output_file}")
 
+
+def export_to_jsonl(translated_map, original_structured_json, output_file="gpt_ready_grouped.jsonl"):
+    with open(output_file, "w", encoding="utf-8") as f:
+        for word_group, entries in original_structured_json.items():
+            for entry in entries:
+                tag = entry["tag"]
+                block_keys = [k for k in entry if k != "tag"]
+                for key in block_keys:
+                    en_text = entry[key]
+                    fr_text = translated_map.get(key)
+                    if not fr_text:
+                        continue
+                    json_line = {
+                        "id": key,
+                        "tag": tag,
+                        "EN": en_text,
+                        "FR": fr_text
+                    }
+                    f.write(json.dumps(json_line, ensure_ascii=False) + "\n")
+    print(f"✅ GPT-ready JSONL saved to {output_file}")
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Translate JSON content with language validation"
