@@ -61,15 +61,17 @@ def create_efficient_translatable_map(
                     token_indices.append(token)  # Append to list
                     original_texts[token] = segment_text
 
+    def clean_text(text):
+        text = re.sub(r'^(.*?):\s*', '', text)  # Remove any prefix ending with ":"
+        text = re.sub(r'[^\w\sà-üÀ-Ü]', ' ', text)  # Replace special chars with spaces
+        text = re.sub(r'^\W+|\W+$', '', text)
+        return text.strip()[:500]  # Keep this line for truncation
+        
+    
     # Language-aware batch translation
     if texts_to_translate:
         print(f"Processing {len(texts_to_translate)} segments with language validation...")
 
-        def clean_text(text):
-            text = re.sub(r'^(.*?):\s*', '', text)  # Remove any prefix ending with ":"
-            text = re.sub(r'[^\w\sà-üÀ-Ü]', ' ', text)  # Replace special chars with spaces
-            text = re.sub(r'^\W+|\W+$', '', text)
-            return text.strip()[:500] # Keep this line for truncation
         
         batch_size = 330  # Conservative batch size for detection overhead
         for batch_idx in range(0, len(texts_to_translate), batch_size):
@@ -77,12 +79,13 @@ def create_efficient_translatable_map(
             translated_batch = []
             
             try:
-               detection_texts = [clean_text(text) for text in batch]
-               detection_results = translator.translate_text(
-                   detection_texts,
-                   target_lang=target_lang,
-                   preserve_formatting=True
-               )
+                # Phase 1: Batch Language detection
+                detection_texts = [clean_text(text) for text in batch]
+                detection_results = translator.translate_text(
+                    detection_texts,
+                    target_lang=target_lang,
+                    preserve_formatting=True
+                )
 
                 # Phase 2: Language validation and conditional full translation
                 for idx, detection in enumerate(detection_results):
@@ -124,6 +127,8 @@ def create_efficient_translatable_map(
         print(f"Updated translation memory with {len(translation_memory)} entries")
 
     return translatable_map
+
+
 
 
 def translate_json_file(
