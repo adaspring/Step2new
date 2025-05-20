@@ -78,10 +78,12 @@ def create_efficient_translatable_map(
         for batch_idx in range(0, len(texts_to_translate), batch_size):
             batch = texts_to_translate[batch_idx:batch_idx+batch_size]
             translated_batch = []
+
             
             try:
                 # Phase 1: Batch Language detection
-                detection_texts = [clean_text(text) for text in batch]
+                detection_texts = [clean_text(text) for text in batch]  # For detection only
+                translation_texts = batch  # Use original text for actual translation
                 detection_results = translator.translate_text(
                     detection_texts,
                     target_lang=target_lang,
@@ -95,10 +97,10 @@ def create_efficient_translatable_map(
                         lang.lower() for lang in [primary_lang, secondary_lang] if lang
                     }
 
-                    text = batch[idx]
+                    text = translation_text[idx]
                     if allowed_langs and detected_lang in allowed_langs:
                         result = translator.translate_text(
-                            text,
+                            translation_texts[idx],
                             target_lang=target_lang
                         )
                         translated_batch.append(result.text)
