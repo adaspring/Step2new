@@ -1,4 +1,4 @@
-name: Eract and Translate Content
+name: Extract and Translate Content
 
 on:
   workflow_dispatch:
@@ -127,6 +127,4 @@ jobs:
             non_translatable.html
             translations.json
             segments_only.json
-            gpt_ready_grouped.txt
-            
             
