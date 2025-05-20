@@ -64,6 +64,12 @@ def create_efficient_translatable_map(
     # Language-aware batch translation
     if texts_to_translate:
         print(f"Processing {len(texts_to_translate)} segments with language validation...")
+
+        def clean_text(text):
+            text = re.sub(r'^(.*?):\s*', '', text)  # Remove any prefix ending with ":"
+            text = re.sub(r'[^\w\sà-üÀ-Ü]', ' ', text)  # Replace special chars with spaces
+            text = re.sub(r'^\W+|\W+$', '', text)
+            return text.strip()[:500] # Keep this line for truncation
         
         batch_size = 330  # Conservative batch size for detection overhead
         for batch_idx in range(0, len(texts_to_translate), batch_size):
@@ -71,14 +77,6 @@ def create_efficient_translatable_map(
             translated_batch = []
             
             try:
-                # Phase 1: Batch Language detection
-                # Updated detection logic (best of both worlds)
-               def clean_text(text):
-                   text = re.sub(r'^(.*?):\s*', '', text)  # Remove any prefix ending with ":"
-                   text = re.sub(r'[^\w\sà-üÀ-Ü]', ' ', text)  # Replace special chars with spaces
-                   text = re.sub(r'^\W+|\W+$', '', text)
-                   return text.strip()[:500] # Keep this line for truncation
-
                detection_texts = [clean_text(text) for text in batch]
                detection_results = translator.translate_text(
                    detection_texts,
