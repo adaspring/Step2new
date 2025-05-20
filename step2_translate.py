@@ -58,15 +58,6 @@ def create_efficient_translatable_map(
                     token_indices.append(token)
                     original_texts[token] = segment_text
 
-    def clean_text(text):
-    # Keep mathematical symbols during detection
-    text = re.sub(r'^(.*?):\s*', '', text, flags=re.IGNORECASE)
-    text = re.sub(r'[^\w\sÀ-ÿ=+-]', ' ', text)  # 🔴 Allow =, +, -
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()[:500]
-    
-    
-    
     
     def clean_text(text):
         """Clean text for language detection only"""
