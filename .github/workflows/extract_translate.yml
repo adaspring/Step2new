@@ -99,14 +99,14 @@ jobs:
         run: |
           if [ -z "${{ github.event.inputs.secondary_lang }}" ]; then
             python step2_translate.py \
-              --input translatable_flat_sentences.json \
+              --input translatable_flat.json \
               --output translations.json \
               --segments segments_only.json \
               --lang "${{ github.event.inputs.target_lang }}" \
               --primary-lang "${{ github.event.inputs.lang }}"
           else
             python step2_translate.py \
-             --input translatable_flat_sentences.json \
+             --input translatable_flat.json \
              --output translations.json \
              --segments segments_only.json \
              --lang "${{ github.event.inputs.target_lang }}" \
