@@ -72,11 +72,19 @@ def create_efficient_translatable_map(
             
             try:
                 # Phase 1: Batch Language detection
-                detection_results = translator.translate_text(
-                    [text[:100] for text in batch],
-                    target_lang=target_lang,
-                    preserve_formatting=True
-                )
+                # Updated detection logic (best of both worlds)
+               def clean_text(text):
+                   text = re.sub(r'^(.*?):\s*', '', text)  # Remove any prefix ending with ":"
+                   text = re.sub(r'[^\w\sà-üÀ-Ü]', ' ', text)  # Replace special chars with spaces
+                   text = re.sub(r'^\W+|\W+$', '', text)
+                   return text.strip()[:500] # Keep this line for truncation
+
+               detection_texts = [clean_text(text) for text in batch]
+               detection_results = translator.translate_text(
+                   detection_texts,
+                   target_lang=target_lang,
+                   preserve_formatting=True
+               )
 
                 # Phase 2: Language validation and conditional full translation
                 for idx, detection in enumerate(detection_results):
