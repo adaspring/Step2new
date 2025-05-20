@@ -73,7 +73,7 @@ def create_efficient_translatable_map(
             try:
                 # Phase 1: Batch Language detection
                 detection_results = translator.translate_text(
-                    [text[:20] for text in batch],
+                    [text[:100] for text in batch],
                     target_lang=target_lang,
                     preserve_formatting=True
                 )
