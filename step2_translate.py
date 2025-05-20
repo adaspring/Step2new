@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 
 
-
 def create_efficient_translatable_map(
     json_data, 
     translator, 
@@ -27,7 +26,7 @@ def create_efficient_translatable_map(
                 translation_memory = json.load(f)
             print(f"Loaded {len(translation_memory)} cached translations")
         except json.JSONDecodeError:
-            pass
+            print(f"Warning: Corrupted translation memory file {memory_file}")
 
     # Prepare translation data structures
     translatable_map = {}
@@ -35,44 +34,50 @@ def create_efficient_translatable_map(
     token_indices = []
     original_texts = {}
 
-    # Process blocks
+    # Process all blocks and segments
     for block_id, block_data in json_data.items():
         if "text" in block_data:
             text = block_data["text"]
             token = block_id
             if text in translation_memory:
                 translatable_map[token] = translation_memory[text]
+                print(f"Using cached: {token}")
             else:
                 texts_to_translate.append(text)
                 token_indices.append(token)
                 original_texts[token] = text
 
         if "segments" in block_data:
-            for seg_id, seg_text in block_data["segments"].items():
-                token = f"{block_id}_{seg_id}"
-                if seg_text in translation_memory:
-                    translatable_map[token] = translation_memory[seg_text]
+            for segment_id, segment_text in block_data["segments"].items():
+                token = f"{block_id}_{segment_id}"
+                if segment_text in translation_memory:
+                    translatable_map[token] = translation_memory[segment_text]
+                    print(f"Using cached segment: {token}")
                 else:
-                    texts_to_translate.append(seg_text)
+                    texts_to_translate.append(segment_text)
                     token_indices.append(token)
-                    original_texts[token] = seg_text
+                    original_texts[token] = segment_text
 
     def clean_text(text):
-        text = re.sub(r'^(.*?):\s*', '', text)
-        text = re.sub(r'[^\w\sà-üÀ-Ü]', ' ', text)
-        text = re.sub(r'^\W+|\W+$', '', text)
-        return text.strip()[:500]
+        """Clean text for language detection only"""
+        text = re.sub(r'^(.*?):\s*', '', text)  # Remove prefixes
+        text = re.sub(r'[^\w\sà-üÀ-Ü]', ' ', text)  # Clean special chars
+        text = re.sub(r'^\W+|\W+$', '', text)  # Trim edges
+        return text.strip()[:500]  # Limit for detection
 
-    # Batch processing
+    # Language-aware batch translation
     if texts_to_translate:
+        print(f"Processing {len(texts_to_translate)} segments with language validation...")
+        
         batch_size = 330
         for batch_idx in range(0, len(texts_to_translate), batch_size):
             batch = texts_to_translate[batch_idx:batch_idx+batch_size]
             translated_batch = []
             
             try:
+                # Phase 1: Language detection with cleaned text
                 detection_texts = [clean_text(text) for text in batch]
-                translation_texts = batch
+                translation_texts = batch  # Keep original texts for translation
                 
                 detection_results = translator.translate_text(
                     detection_texts,
@@ -80,10 +85,21 @@ def create_efficient_translatable_map(
                     preserve_formatting=True
                 )
 
+                # Phase 2: Translation with original texts
                 for idx, detection in enumerate(detection_results):
                     detected_lang = detection.detected_source_lang.lower()
                     allowed_langs = {lang.lower() for lang in [primary_lang, secondary_lang] if lang}
                     original_text = translation_texts[idx]
+
+                    # Short-text bypass
+                    if len(original_text.strip()) < 15 and secondary_lang:
+                        try:
+                            result = translator.translate_text(original_text, target_lang=target_lang)
+                            translated_batch.append(result.text)
+                            continue
+                        except Exception as e:
+                            translated_batch.append(original_text)
+                            continue
 
                     if allowed_langs and detected_lang in allowed_langs:
                         result = translator.translate_text(original_text, target_lang=target_lang)
@@ -91,7 +107,8 @@ def create_efficient_translatable_map(
                     else:
                         translated_batch.append(original_text)
 
-            except Exception:
+            except Exception as e:
+                print(f"Translation skipped for batch (error: {str(e)[:50]}...)")
                 translated_batch.extend(batch)
             
             # Store results
@@ -103,14 +120,18 @@ def create_efficient_translatable_map(
                 
                 translatable_map[token] = final_text
                 translation_memory[original_text] = final_text
+            
+            print(f"Completed batch {batch_idx//batch_size + 1}/{(len(texts_to_translate) + batch_size - 1)//batch_size}")
 
-    # Save memory
+    # Update translation memory
     if memory_file and translation_memory:
         os.makedirs(os.path.dirname(memory_file), exist_ok=True)
         with open(memory_file, "w", encoding="utf-8") as f:
             json.dump(translation_memory, f, ensure_ascii=False, indent=2)
+        print(f"Updated translation memory with {len(translation_memory)} entries")
 
     return translatable_map
+
 
 
 
